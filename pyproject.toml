@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "irfinder-mdl"
+version = "0.1.0"
+description = "Junction-anchored intron retention from spliced long-read BAM alignments."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Methods Development Lab, The Broad Institute" },
+]
+keywords = ["RNA-seq", "intron retention", "splicing", "long-read", "nanopore", "pacbio", "SBX"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "pysam>=0.21",
+    "intervaltree>=3.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+irfinder-mdl = "irfinder_mdl.cli:main"
+
+[project.urls]
+Repository = "https://github.com/MethodsDev/IRfinder-mdl"
+Issues = "https://github.com/MethodsDev/IRfinder-mdl/issues"
+
+[tool.setuptools.packages.find]
+include = ["irfinder_mdl*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

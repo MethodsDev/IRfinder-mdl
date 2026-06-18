@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Project-local runs
+output/
+data/
+*.bam
+*.bam.bai
+*.sam
+*.cram
+*.crai
+*.fa
+*.fa.fai
+*.fasta
+*.fasta.fai
+*.gtf
+*.gtf.gz
+*.gff
+*.gff.gz
