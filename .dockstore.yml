@@ -1,0 +1,19 @@
+# Dockstore registration for IRfinder-mdl.
+# See https://docs.dockstore.org/en/stable/assets/templates/workflows/workflows.html
+# for the schema reference.
+
+version: 1.2
+
+workflows:
+  - name: irfinder-mdl
+    subclass: WDL
+    primaryDescriptorPath: /WDL/irfinder_mdl.wdl
+    readMePath: /WDL/README.md
+    testParameterFiles:
+      - /WDL/inputs.template.json
+    authors:
+      - name: Brian Haas
+        email: bhaas@broadinstitute.org
+        role: Maintainer
+        affiliation: Methods Development Lab, The Broad Institute
+    topic: Junction-anchored intron retention with optional intronic-depth signal, for long-read spliced BAMs.
