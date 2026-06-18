@@ -25,7 +25,7 @@ if [[ -z "${VERSION}" ]]; then
     exit 1
 fi
 
-REGISTRY="us-central1-docker.pkg.dev/methods-dev-lab/irfinder-mdl"
+REGISTRY="us-central1-docker.pkg.dev/methods-dev-lab/irfinder-mdl/irfinder-mdl"
 TAG_VERSION="${REGISTRY}:${VERSION}"
 TAG_LATEST="${REGISTRY}:latest"
 
