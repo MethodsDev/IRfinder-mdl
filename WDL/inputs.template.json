@@ -1,0 +1,29 @@
+{
+  "_comment": "Inputs template for the IRfinderMDL workflow. Provide ONE of `introns_tsv` (a pre-built unique-intron TSV) OR `gtf` (a reference GTF); supplying both ignores the GTF. Replace the gs://, s3://, or local paths below as appropriate.",
+
+  "IRfinderMDL.bam":        "gs://your-bucket/path/to/sample.sorted.bam",
+  "IRfinderMDL.bam_index":  "gs://your-bucket/path/to/sample.sorted.bam.bai",
+  "IRfinderMDL.sample_id":  "sample",
+
+  "IRfinderMDL.introns_tsv": "gs://your-bucket/path/to/introns.tsv.gz",
+  "_or_supply_a_gtf_instead": "Remove introns_tsv above and uncomment gtf below if you have not pre-built introns:",
+  "_IRfinderMDL.gtf":       "gs://your-bucket/path/to/annotations.gtf",
+
+  "IRfinderMDL.docker":     "us-central1-docker.pkg.dev/methods-dev-lab/irfinder-mdl/irfinder-mdl:latest",
+
+  "_quantify_knobs": "Defaults match the IRfinder-S long-read presets; tune if needed.",
+  "IRfinderMDL.anchor":              8,
+  "IRfinderMDL.jitter":              3,
+  "IRfinderMDL.min_mapq":            1,
+  "IRfinderMDL.exclude_flags":       2304,
+  "IRfinderMDL.skip_exon_overlap":   false,
+
+  "_resource_overrides": "Increase quantify_cpu / quantify_memory_gb for large BAMs.",
+  "IRfinderMDL.build_introns_cpu":        2,
+  "IRfinderMDL.build_introns_memory_gb":  8,
+  "IRfinderMDL.quantify_cpu":            16,
+  "IRfinderMDL.quantify_memory_gb":      16,
+  "IRfinderMDL.summarize_cpu":            1,
+  "IRfinderMDL.summarize_memory_gb":      4,
+  "IRfinderMDL.preemptible":              0
+}

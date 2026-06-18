@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Build the IRfinder-mdl Docker image and push it to GCP Artifact Registry
-# under us-central1-docker.pkg.dev/methods-dev-lab/irfinder-mdl.
+# under us-central1-docker.pkg.dev/methods-dev-lab/irfinder-mdl/irfinder-mdl.
 #
 # Usage:    Docker/build_and_push.sh
 # Prereq:   `gcloud auth configure-docker us-central1-docker.pkg.dev` once per
