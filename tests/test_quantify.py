@@ -7,6 +7,7 @@ import pytest
 
 from irfinder_mdl.quantify import (
     CIGAR_M, CIGAR_I, CIGAR_D, CIGAR_N, CIGAR_S, CIGAR_H,
+    _safe_ratio,
     classify_read_vs_intron,
     matched_bp_in,
     parse_cigar,
@@ -187,30 +188,37 @@ class TestClassifierRetention:
         assert f["retain_left"] is False
         assert f["retain_right"] is True
 
-    def test_insufficient_anchor_on_exon_side_rejected(self):
-        # Only 7 bp on exon side (993..1000), need 8.  Read end at 1100 also
-        # fails the right-boundary anchor.  Result: no boundary supported,
-        # classifier returns None.
+    def test_insufficient_anchor_on_exon_side_no_retain(self):
+        # 7 bp on exon side (need 8) -> retain_left False, but the 100 bp
+        # inside the intron still count toward intron_coverage_bp.  The read
+        # is not "interior" (its alignment starts in the upstream exon).
         matched = [(993, 1100)]
-        n_skips = []
-        f = _classify(matched, n_skips)
-        assert f is None
+        f = _classify(matched, [])
+        assert f is not None
+        assert f["retain_left"] is False
+        assert f["retain_right"] is False
+        assert f["interior"] is False
+        assert f["intronic_bp"] == 100
 
-    def test_insufficient_anchor_on_intron_side_rejected(self):
-        # Plenty of exon, only 7 bp into the intron
+    def test_insufficient_anchor_on_intron_side_no_retain(self):
+        # Only 7 bp into the intron (need 8) -> retain_left False, but the
+        # 7 intronic bp still contribute to coverage.
         matched = [(900, 1007)]
-        n_skips = []
-        f = _classify(matched, n_skips)
-        # crosses_left? not enough anchor inside intron -> None entire read
-        assert f is None
+        f = _classify(matched, [])
+        assert f is not None
+        assert f["retain_left"] is False
+        assert f["intronic_bp"] == 7
+        assert f["interior"] is False
 
     def test_deletion_inside_anchor_window_breaks_retention(self):
-        # 2 bp deletion straddling the boundary makes the intronic-side anchor
-        # only 6/8 bp.  Strict policy: this read is not a retention witness.
-        # Plenty of read context elsewhere; the failure is the anchor itself.
+        # 2 bp deletion straddling the boundary defeats the strict retain
+        # check (only 6 matched bp in the intronic anchor window).  Depth
+        # signal still counts the 98 matched bp inside the intron.
         matched = [(900, 1000), (1002, 1100)]
         f = _classify(matched, [])
-        assert f is None  # no boundary crossing reliably supported
+        assert f is not None
+        assert f["retain_left"] is False
+        assert f["intronic_bp"] == 98
 
     def test_deletion_outside_anchor_window_tolerated(self):
         # 5 bp deletion well inside the intron, far from any anchor window.
@@ -219,14 +227,23 @@ class TestClassifierRetention:
         f = _classify(matched, [])
         assert f["retain_left"] is True
         assert f["retain_right"] is True
+        # Intronic M bp = (1500-1000) + (2000-1505) = 500 + 495 = 995
+        assert f["intronic_bp"] == 995
 
 
 class TestClassifierMixedAndExclusion:
-    def test_read_entirely_inside_intron_is_rejected(self):
+    def test_read_entirely_inside_intron_marks_interior(self):
+        # Fully inside [1000, 2000) with no N -> interior=True, contributes
+        # its full length to intron_coverage_bp, but no boundary signals.
         matched = [(1200, 1500)]
-        n_skips = []
-        f = _classify(matched, n_skips)
-        assert f is None
+        f = _classify(matched, [])
+        assert f is not None
+        assert f["interior"] is True
+        assert f["intronic_bp"] == 300
+        assert f["splice_left"] is False
+        assert f["splice_right"] is False
+        assert f["retain_left"] is False
+        assert f["retain_right"] is False
 
     def test_mixed_splice_left_retain_right(self):
         # CIGAR: 100M starting at 900 to 1000, then N from 1000 to 1800,
@@ -251,6 +268,120 @@ class TestClassifierMixedAndExclusion:
         f = _classify(matched, [])
         assert f is None
 
+# ---------------------------------------------------------------------------
+# Depth-augmented signal (interior reads + intron_coverage_bp)
+# ---------------------------------------------------------------------------
+class TestDepthSignal:
+    def test_clean_splice_contributes_zero_depth(self):
+        # A read that splices the intron exactly contributes 0 intronic_bp.
+        matched = [(900, 1000), (2000, 2100)]
+        n_skips = [(1000, 2000)]
+        f = _classify(matched, n_skips)
+        assert f["splice_exact"] is True
+        assert f["intronic_bp"] == 0
+        assert f["interior"] is False
+
+    def test_partial_overlap_retention_contributes_partial_depth(self):
+        # Read covers 500 bp inside the intron via retention at the left
+        # boundary; no N; counts those 500 bp toward intron_coverage_bp.
+        matched = [(900, 1500)]
+        f = _classify(matched, [])
+        assert f["retain_left"] is True
+        assert f["intronic_bp"] == 500
+        assert f["interior"] is False
+
+    def test_full_retention_contributes_full_intron_length(self):
+        matched = [(900, 2100)]
+        f = _classify(matched, [])
+        assert f["retain_left"] is True
+        assert f["retain_right"] is True
+        # intron length = 1000
+        assert f["intronic_bp"] == 1000
+
+    def test_interior_read_with_internal_N_does_not_count(self):
+        # Read fully inside the intron but with an N inside it -- e.g. a
+        # spurious internal splice.  We refuse to credit this as retention
+        # depth.
+        matched = [(1100, 1300), (1400, 1700)]
+        n_skips = [(1300, 1400)]
+        f = _classify(matched, n_skips)
+        # n_intersects_intron -> intronic_bp = 0, interior = False
+        assert f is None  # no other signal -> no contribution
+
+    def test_read_spliced_at_unrelated_intron_still_contributes_depth(self):
+        # Read has a CIGAR `100M_50N_500M` where the N is upstream of our
+        # intron entirely.  Inside our intron the read is contiguous M and no
+        # N intersects [s, e), so 500 bp of intronic depth count.
+        matched = [(800, 900), (950, 1450)]
+        n_skips = [(900, 950)]
+        s, e = 1000, 2000
+        f = classify_read_vs_intron(s, e, matched, n_skips, anchor=8, jitter=3)
+        # No N intersects [1000, 2000); intronic_bp = matched bp in [1000, 1450) = 450
+        assert f is not None
+        assert f["intronic_bp"] == 450
+
+    def test_n_intersecting_intron_zeros_depth(self):
+        # Read with an N op that partially overlaps the intron disqualifies
+        # all intronic bp contribution from this read.
+        matched = [(900, 1100), (1200, 1500)]
+        n_skips = [(1100, 1200)]
+        f = _classify(matched, n_skips)
+        # n_intersects_intron at [1100, 1200) intersects [1000, 2000)
+        assert f is not None  # may still have a boundary signal at left
+        assert f["intronic_bp"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Aggregation: update_counts wires everything into IntronCounts
+# ---------------------------------------------------------------------------
+class TestUpdateCounts:
+    def test_interior_read_increments_interior_and_bp(self):
+        from irfinder_mdl.quantify import IntronCounts, update_counts
+        c = IntronCounts()
+        flags = {"splice_left": False, "splice_right": False, "splice_exact": False,
+                 "retain_left": False, "retain_right": False,
+                 "interior": True, "intronic_bp": 300}
+        update_counts(c, flags)
+        assert c.crossing_reads == 1
+        assert c.interior_reads == 1
+        assert c.intron_coverage_bp == 300
+        assert c.splice_left == c.splice_right == 0
+        assert c.retain_left == c.retain_right == 0
+
+    def test_boundary_retain_read_is_not_interior_but_contributes_bp(self):
+        from irfinder_mdl.quantify import IntronCounts, update_counts
+        c = IntronCounts()
+        flags = {"splice_left": False, "splice_right": False, "splice_exact": False,
+                 "retain_left": True, "retain_right": False,
+                 "interior": False, "intronic_bp": 500}
+        update_counts(c, flags)
+        assert c.retain_left == 1
+        assert c.interior_reads == 0
+        assert c.intron_coverage_bp == 500
+
+
+# ---------------------------------------------------------------------------
+# IR ratio semantics: undefined when no splice evidence
+# ---------------------------------------------------------------------------
+class TestSafeRatio:
+    def test_typical_ratio(self):
+        # 30 retain, 70 splice -> 30/100 = 0.30
+        assert _safe_ratio(30, 70) == "0.300000"
+
+    def test_no_evidence_is_dot(self):
+        assert _safe_ratio(0, 0) == "."
+
+    def test_no_splice_is_dot_even_with_retention(self):
+        # No splice comparator -- ratio is undefined, not 1.0.
+        assert _safe_ratio(50, 0) == "."
+
+    def test_no_retention_is_zero(self):
+        # Splice present, retention zero -> 0.0
+        assert _safe_ratio(0, 50) == "0.000000"
+
+    def test_works_with_floats(self):
+        # Mean depth (float) competes with splice count (int)
+        assert _safe_ratio(2.5, 7.5) == "0.250000"
 
 # ---------------------------------------------------------------------------
 # GTF parsing roundtrip

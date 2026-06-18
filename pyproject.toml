@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "irfinder-mdl"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Junction-anchored intron retention from spliced long-read BAM alignments."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,9 @@ Issues = "https://github.com/MethodsDev/IRfinder-mdl/issues"
 [tool.setuptools.packages.find]
 include = ["irfinder_mdl*"]
 exclude = ["tests*"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION.txt" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

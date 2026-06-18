@@ -65,9 +65,15 @@ class IntronCounts:
     """Counts populated per annotated intron.
 
     `crossing_reads` is the unique-read total: every read that contributed at
-    least one of the boolean signals below increments it once.  All other
+    least one of the boolean signals below increments it once.  Most other
     fields are independent boolean tallies over the same read set, so a read
     may contribute to several of them simultaneously.
+
+    The `interior_reads` / `intron_coverage_bp` fields carry the additional
+    intronic-depth signal added in v0.0.1 (see README "Depth-augmented mode"):
+    they let downstream code compute an IRFinder-S-style IR ratio that
+    incorporates reads sitting inside the intron without requiring them to
+    reach a boundary.
     """
     crossing_reads: int = 0
     splice_left: int = 0
@@ -77,6 +83,10 @@ class IntronCounts:
     retain_right: int = 0
     retain_both: int = 0   # crosses both boundaries AND retains both
     mixed: int = 0         # splices one boundary, retains the other
+
+    # Depth-augmented signal (no boundary required).
+    interior_reads: int = 0      # reads fully inside [s, e) with no N op intersecting [s, e)
+    intron_coverage_bp: int = 0  # sum of M bp inside [s, e) from reads that don't splice through this intron
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +146,16 @@ def classify_read_vs_intron(
     anchor: int,
     jitter: int,
 ):
-    """Return a dict of boolean flags, or None if the read does not cross
-    either boundary of this intron with the required anchor.
+    """Return a dict of signals contributed by this read against this intron,
+    or None if the read contributes nothing.
+
+    A read contributes if **any** of the following is true:
+      * it splices either boundary (anchor-passing N op);
+      * it retains either boundary (anchor-passing M alignment);
+      * it carries at least one matched bp inside `[s, e)` AND no `N` op
+        intersects `[s, e)` -- this is the depth-augmented signal that lets
+        fully-interior reads (and partial-overlap retention reads) contribute
+        to `intron_coverage_bp`.
     """
     if not matched_intervals:
         return None
@@ -146,10 +164,11 @@ def classify_read_vs_intron(
     s, e = intron_start, intron_end
     k, j = anchor, jitter
 
-    # Fast reject: read couldn't reach either anchor window
+    # Fast reject: read is entirely outside the intron + anchor window.
     if read_end <= s - k or read_start >= e + k:
         return None
 
+    # Splice at each boundary
     splice_left = splice_right = splice_exact = False
     for ns_start, ns_end in n_skips:
         sl_ok = (
@@ -174,7 +193,6 @@ def classify_read_vs_intron(
             matched_bp_in(s - k, s, matched_intervals) >= k
             and matched_bp_in(s, s + k, matched_intervals) >= k
         ):
-            # Belt and braces: no N op crosses the anchor window.
             if not any(ns < s + k and ne > s - k for ns, ne in n_skips):
                 retain_left = True
 
@@ -188,9 +206,25 @@ def classify_read_vs_intron(
             if not any(ns < e + k and ne > e - k for ns, ne in n_skips):
                 retain_right = True
 
+    # Depth-augmented signal: M bp inside [s, e), gated on the read not
+    # using this intron as a splice donor/acceptor.  Reads that splice an
+    # *unrelated* intron entirely outside [s, e) still contribute their
+    # intronic M bp.
+    n_intersects_intron = any(ns < e and ne > s for ns, ne in n_skips)
+    intronic_bp = 0 if n_intersects_intron else matched_bp_in(s, e, matched_intervals)
+    # Interior: read's alignment is fully inside [s, e), no N intersecting.
+    interior = (
+        not n_intersects_intron
+        and read_start >= s
+        and read_end <= e
+        and intronic_bp > 0
+    )
+
     crosses_left = splice_left or retain_left
     crosses_right = splice_right or retain_right
-    if not (crosses_left or crosses_right):
+    if not (crosses_left or crosses_right) and intronic_bp == 0:
+        # Read overlaps [s-k, e+k] but contributes no signal -- e.g. sits in
+        # the upstream/downstream flank without crossing a boundary.
         return None
 
     return {
@@ -199,6 +233,8 @@ def classify_read_vs_intron(
         "splice_exact": splice_exact,
         "retain_left": retain_left,
         "retain_right": retain_right,
+        "interior": interior,
+        "intronic_bp": intronic_bp,
     }
 
 
@@ -213,7 +249,9 @@ def update_counts(counts: IntronCounts, f: dict) -> None:
         counts.retain_both += 1
     elif (f["retain_left"] and f["splice_right"]) or (f["retain_right"] and f["splice_left"]):
         counts.mixed += 1
-
+    if f["interior"]:
+        counts.interior_reads += 1
+    counts.intron_coverage_bp += f["intronic_bp"]
 
 # ---------------------------------------------------------------------------
 # Per-chromosome worker
@@ -343,17 +381,33 @@ QUANT_TSV_HEADER = [
     "crossing_reads",
     "splice_left", "splice_right", "splice_exact",
     "retain_left", "retain_right", "retain_both", "mixed",
-    "ir_ratio_left", "ir_ratio_right", "ir_ratio",
+    "interior_reads", "intron_coverage_bp", "intron_mean_depth",
+    "ir_ratio_left", "ir_ratio_right",
+    "ir_ratio_junction",  # junction-anchored only
+    "ir_ratio_depth",     # IRFinder-S-style: depth competes with max splice
 ]
 
 
-def _safe_ratio(num: int, denom: int) -> str:
-    """`num / (num + denom)` as a fixed-precision string, or '.' when there is
-    no evidence either way (denominator is zero)."""
-    total = num + denom
-    if total == 0:
+def _safe_ratio(retention: float, splice: float) -> str:
+    """Return the IR ratio `retention / (retention + splice)` as a fixed-
+    precision string, or '.' when there is no splice evidence to compare
+    against (`splice == 0`).
+
+    The denominator's `splice` term is required to be non-zero by design: an
+    IR ratio is a *relative* measure of retention vs splicing, and if no
+    splicing was observed at this intron / boundary we cannot tell whether
+    that is because the intron is fully retained or simply because the locus
+    is not expressed enough to produce splice evidence.  Outputting '.' for
+    these cases prevents lowly-expressed introns with stray interior reads
+    from artificially inflating the IR distribution at 1.0.
+    """
+    if splice <= 0:
         return "."
-    return f"{num / total:.6f}"
+    return f"{retention / (retention + splice):.6f}"
+
+
+def _fmt_depth(depth: float) -> str:
+    return f"{depth:.4f}"
 
 
 def write_quant_tsv(
@@ -367,12 +421,20 @@ def write_quant_tsv(
     try:
         fh.write("\t".join(QUANT_TSV_HEADER) + "\n")
         for intron, c in zip(introns, counts):
+            intron_length = intron.end - intron.start
+            mean_depth = (
+                c.intron_coverage_bp / intron_length if intron_length > 0 else 0.0
+            )
+            max_splice = max(c.splice_left, c.splice_right)
             ir_left  = _safe_ratio(c.retain_left,  c.splice_left)
             ir_right = _safe_ratio(c.retain_right, c.splice_right)
-            ir_total = _safe_ratio(
+            ir_junction = _safe_ratio(
                 c.retain_left + c.retain_right,
                 c.splice_left + c.splice_right,
             )
+            # IRFinder-S form: mean intron depth competes with the larger of
+            # the two splice-junction counts.
+            ir_depth = _safe_ratio(mean_depth, max_splice)
             fh.write("\t".join([
                 intron.chrom,
                 str(intron.start),
@@ -382,13 +444,16 @@ def write_quant_tsv(
                 ",".join(sorted(intron.gene_ids)) if intron.gene_ids else "",
                 ",".join(sorted(intron.gene_names)) if intron.gene_names else "",
                 ",".join(sorted(intron.gene_types)) if intron.gene_types else "",
-                str(intron.end - intron.start),
+                str(intron_length),
                 "1" if intron.exon_overlap else "0",
                 str(c.crossing_reads),
                 str(c.splice_left), str(c.splice_right), str(c.splice_exact),
                 str(c.retain_left), str(c.retain_right),
                 str(c.retain_both), str(c.mixed),
-                ir_left, ir_right, ir_total,
+                str(c.interior_reads), str(c.intron_coverage_bp),
+                _fmt_depth(mean_depth),
+                ir_left, ir_right,
+                ir_junction, ir_depth,
             ]) + "\n")
     finally:
         fh.close()

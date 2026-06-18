@@ -3,33 +3,54 @@
 > Implemented by Anthropic's Claude Opus 4.7 under direction from
 > the Methods Development Lab at the Broad Institute (June 2026).
 
-A minimal, junction-anchored intron-retention counter for spliced-read BAMs.
+A junction-anchored intron retention counter for spliced-read BAMs, with an
+optional intronic-depth signal alongside.
 
 Given a reference annotation (GTF) and a sorted+indexed BAM of long-read
-spliced alignments, for every annotated intron the tool counts, at each of the
-two boundaries (5'/donor and 3'/acceptor), reads that:
+spliced alignments, for every annotated intron the tool counts:
+
+**Junction signal — what does each read say at the boundaries?**
 
 1. **splice** the boundary — a CIGAR `N` block whose endpoint lies within
-   `--jitter` bp of the boundary, supported by at least `--anchor` matched
-   bases on the *exonic* side of that junction; or
+   `--jitter` bp of the annotated boundary, supported by at least `--anchor`
+   matched bases on the *exonic* side of that junction;
 2. **retain** the boundary — at least `--anchor` matched bases on both the
    *exonic* and *intronic* side of the boundary, with no `N` op crossing the
    anchor window.
 
-The IR ratio at each boundary is then
+The junction-only IR ratio at each boundary is
 $$\mathrm{IR}_{\text{side}} = \frac{R_{\text{side}}}{R_{\text{side}} + S_{\text{side}}}$$
-and the per-intron summary
-$$\mathrm{IR} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}.$$
+with the per-intron summary
+$$\mathrm{IR}_{\text{junction}} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}.$$
 
-Reads that lie entirely within an intron contribute **no** evidence — only
-boundary-crossing reads count. This is a deliberate departure from
-coverage-based tools like iREAD; for long reads with truncated 5' ends, fully
-intronic reads are frequently 3'-fragments of the gene and not retention
-witnesses.
+**Depth signal — how much intronic sequence is actually unspliced?**
 
-The model is the same as IRFinder's per-intron junction counters; the
-implementation is in Python, takes any minimap2-spliced BAM, and adds no
-intron-coverage signal or CNN filter.
+For each annotated intron the tool also tallies:
+- `interior_reads` — reads whose alignment lies fully inside `[s, e)` with
+  no `N` op intersecting the intron;
+- `intron_coverage_bp` — total matched bp inside `[s, e)` contributed by any
+  read whose CIGAR has no `N` op intersecting `[s, e)` (boundary-retain
+  reads, interior reads, or reads spliced through unrelated introns elsewhere).
+
+These give the IRFinder-S-style ratio
+$$\mathrm{IR}_{\text{depth}} = \frac{D}{D + \max(S_L, S_R)}, \quad D = \frac{\text{intron\_coverage\_bp}}{\text{intron\_length}}.$$
+
+Both ratios are `.` (undefined) when there is no splice evidence to compare
+against — the IR ratio is a *relative* measure and a locus with no observed
+splicing is uninformative either way.
+
+**Why two ratios?** Long-read RNA-seq frequently produces reads that cross a
+boundary non-canonically (alt-3'/5' splice sites near the annotation) — these
+show up as boundary-retain reads with little intronic coverage. They look
+like IR through the junction lens but are really alternative splicing. The
+depth view discriminates: an intron with high `IR_junction` and low
+`IR_depth` is likely alternative splicing near a boundary; an intron with
+both high is genuine retention. The two views are complementary.
+
+The junction model is the same as IRFinder-S's per-intron junction counters
+and the depth model is an adapted form of its `IntronDepth / MaxSplice`
+ratio. No CNN filter is applied; reference-mappability filters are left to
+the caller.
 
 ## Install
 
@@ -40,7 +61,7 @@ git clone git@github.com:MethodsDev/IRfinder-mdl.git
 cd IRfinder-mdl
 pip install -e .[test]
 
-python -m pytest                          # 34 tests, ~0.1 s
+python -m pytest                          # 47 tests, ~0.1 s
 irfinder-mdl --help                       # or: python -m irfinder_mdl --help
 ```
 
@@ -93,21 +114,44 @@ Knobs (all default to IRFinder-S long-read settings):
 | --- | --- |
 | `chrom`, `start`, `end`, `strand`, `intron_id`, `gene_ids`, … | mirror the introns table |
 | `intron_length`, `exon_overlap` | mirror the introns table |
-| `crossing_reads` | unique reads that triggered ≥1 of the boolean signals below |
-| `splice_left`    | reads with an `N` op anchored at the 5' boundary |
-| `splice_right`   | reads with an `N` op anchored at the 3' boundary |
-| `splice_exact`   | reads where one `N` op covers the full intron (both boundaries) |
-| `retain_left`    | reads with matched alignment continuously through the 5' boundary |
-| `retain_right`   | reads with matched alignment continuously through the 3' boundary |
-| `retain_both`    | reads that retain both boundaries (cleanest IR witness) |
-| `mixed`          | reads that splice one boundary and retain the other (alternative splice-site usage at this intron) |
-| `ir_ratio_left`  | `retain_left / (retain_left + splice_left)`; `.` if denominator is 0 |
-| `ir_ratio_right` | analogous |
-| `ir_ratio`       | `(retain_L + retain_R) / (retain_L + retain_R + splice_L + splice_R)` |
+| `crossing_reads` | unique reads that contributed at least one signal at this intron |
+| `splice_left`  / `splice_right` / `splice_exact` | per-boundary splice counts; `splice_exact` is reads where one `N` op covers both boundaries |
+| `retain_left`  / `retain_right` | per-boundary retention counts |
+| `retain_both`  | reads that retain *both* boundaries — cleanest junction IR witness |
+| `mixed`        | reads that splice one boundary and retain the other (alternative splice-site usage) |
+| `interior_reads` | reads whose alignment lies fully inside the intron with no `N` op intersecting it |
+| `intron_coverage_bp` | total matched bp inside the intron from all reads whose CIGAR carries no `N` intersecting the intron |
+| `intron_mean_depth` | `intron_coverage_bp / intron_length` |
+| `ir_ratio_left`  | `retain_left / (retain_left + splice_left)`; `.` when `splice_left == 0` |
+| `ir_ratio_right` | analogous on the 3' side |
+| `ir_ratio_junction` | `(R_L + R_R) / (R_L + R_R + S_L + S_R)`; `.` when both sides have no splice events |
+| `ir_ratio_depth` | `intron_mean_depth / (intron_mean_depth + max(S_L, S_R))`; `.` when `max(S_L, S_R) == 0` |
 
 `splice_left + splice_right` *over-counts* every `splice_exact` read once
 (it contributes to both). That is intentional: each boundary is its own
 junction, and the IR ratio treats each as a weighted observation.
+
+All IR ratios return `.` when the splice denominator is zero. The retention
+counts are still reported, so a locus with retention reads but no splice
+reads is preserved in the raw signal — but its ratio is undefined, not 1.0.
+This avoids inflating IR distributions with lowly-expressed loci where stray
+interior reads happen to land in an intron.
+
+### 3. Summarize
+
+```bash
+python -m irfinder_mdl summarize \
+    --quant ir.tsv.gz \
+    --by-chrom
+```
+
+Reports global + per-chromosome totals and the per-intron IR-ratio quantile
+distribution for both `ir_ratio_junction` and `ir_ratio_depth`. Restricted by
+default to clean introns (no exon overlap) and to introns with at least
+`--min-obs` (default 10) contributing reads. Use `--json` for a machine-
+readable dump, `--include-exon-overlap` to also count alt-isoform-prone
+introns.
+
 
 ## Coordinate convention
 
@@ -142,20 +186,25 @@ to 0-based half-open (BAM/BED convention). All output coordinates are
   set `splice_exact` even if each end approximately matches an annotated
   boundary; the intent is to identify reads that report this exact intron as
   one contiguous splice event.
+- **Interior reads vs the depth signal.** A read whose alignment lies fully
+  inside an intron only contributes to `interior_reads` and
+  `intron_coverage_bp` when the read's CIGAR carries no `N` op intersecting
+  the intron. Any `N` op (including ones that use the intron as a splice
+  donor or acceptor) disqualifies that read's intronic bp — we refuse to
+  credit retention coverage that overlaps a splice event in the same
+  transcript molecule.
+- **Two ratios, two stories.** `ir_ratio_junction` measures whether reads
+  cross the boundary as exon or as intron; `ir_ratio_depth` measures how
+  much intronic sequence is unspliced. Wherever they disagree the
+  disagreement is informative — typically alternative splice-site usage
+  shows up as high junction IR with near-zero depth IR.
+- **Undefined ratios are not zero.** When `splice_left + splice_right == 0`
+  (no splice evidence at this locus) every IR ratio is emitted as `.`. A
+  locus with retention reads but no splice reads is *not* an IR call -- we
+  cannot tell whether the intron is genuinely retained or the gene is
+  simply not being processed. Raw counts (`retain_*`, `interior_reads`,
+  `intron_coverage_bp`) remain available for downstream analysis.
 
-### 3. Summarize
-
-```bash
-python -m irfinder_mdl summarize \
-    --quant output/ir_genome.tsv.gz \
-    --by-chrom
-```
-
-Reports global + per-chromosome totals and the per-intron IR-ratio quantile
-distribution, restricted to introns with no exon overlap and at least
-`--min-obs` (default 10) junction observations.  Use `--json` for a machine-
-readable dump, `--include-exon-overlap` to also count alt-isoform-prone
-introns.
 
 ## Example run: SBX cDNA on GENCODE v47
 
@@ -166,27 +215,43 @@ GENCODE v47 on GRCh38, 16 threads on a 16-core AMD EPYC.
 | Step | Wall time | Output |
 | --- | --- | --- |
 | `build-introns` | 28 s    | 516,940 unique introns; 198,297 (38.4 %) with no exon overlap |
-| `quantify` (16 threads) | 6 m 36 s | per-intron TSV, 11 MB gzipped |
+| `quantify` (16 threads) | ~7 m | per-intron TSV, ~12 MB gzipped |
 | `summarize`     | ~1 s    | text or JSON report |
 
 ### Observed IR signal
 
-Clean introns (no exon overlap), ≥ 10 junction observations, N = 69,436:
+Clean introns (no exon overlap), `--min-obs` 10:
 
-| Statistic | Value |
-| --- | --- |
-| global IR rate (event-weighted) | **0.46 %** |
-| introns with IR = 0    | 49,960 (72.0 %) |
-| introns with IR ≥ 5 %  |  5,970 ( 8.6 %) |
-| introns with IR ≥ 10 % |  4,125 ( 5.9 %) |
-| introns with IR ≥ 50 % |  1,516 ( 2.2 %) |
-| per-intron IR p50 / p90 / p95 | 0.000 / 0.036 / 0.135 |
-| `splice_exact` reads (one N op spans the whole intron) | 31.1 M |
-| `splice_left` + `splice_right` (per-boundary splice events) | 41.2 M / 41.4 M |
-| `retain_left` + `retain_right` (per-boundary retention events) | 199 K / 186 K |
+| | junction | depth |
+| --- | ---: | ---: |
+| introns scored                | 68,713 | 70,040 |
+| **global IR rate**            | **0.46 %** | **0.12 %** |
+| introns with IR = 0           | 49,960 (72.7 %) | 18,798 (26.8 %) |
+| introns with IR ≥ 5 %         |  5,247 ( 7.6 %) |  5,114 ( 7.3 %) |
+| introns with IR ≥ 10 %        |  3,402 ( 4.9 %) |  3,280 ( 4.7 %) |
+| introns with IR ≥ 50 %        |    793 ( 1.2 %) |    672 ( 1.0 %) |
+| per-intron IR p50 / p90 / p95 | 0.000 / 0.029 / 0.097 | 0.000 / 0.028 / 0.091 |
 
-These match the published picture for bulk human IR (~5–10 % of introns with
-measurable retention; healthy-tissue global event rates well under 1 %).
+Total junction events on clean introns:
+
+| Signal | Reads |
+| --- | ---: |
+| `splice_exact` (one N op spans the whole intron) | 31.1 M |
+| `splice_left` / `splice_right`                   | 41.2 M / 41.4 M |
+| `retain_left` / `retain_right`                   | 199 K / 186 K |
+| `interior_reads` (fully inside intron, no N)     | 548 K |
+| `intron_coverage_bp` (M bp inside intron, no N)  | 210 M |
+
+Both ratios agree closely on the IR signal in the bulk of the distribution
+(p90 / p95 within ~0.01) but the global *rate* differs: the junction view
+credits boundary-crossing reads regardless of how much intronic sequence they
+actually deposit, so it picks up alternative-splice-site reads as IR; the
+depth view sees those reads as having near-zero intronic coverage and
+discounts them. Wherever the two ratios disagree, the discrepancy itself is
+the diagnostic.
+
+These are consistent with the published picture for bulk human IR (~5–10 %
+of introns with measurable retention; healthy-tissue global rates < 1 %).
 
 ## Quick start (chr22 only)
 
