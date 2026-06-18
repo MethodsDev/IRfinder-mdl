@@ -27,8 +27,14 @@ $$
 with the per-intron summary
 
 $$
-\mathrm{IR}_{\text{junction}} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}.
+\mathrm{IR}_{\text{junction}} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}
 $$
+
+where, with the 5' (donor) boundary subscripted $L$ (left) and the 3' (acceptor) boundary subscripted $R$ (right):
+
+- $S_L$, $S_R$ are the splice-read counts at each boundary (`splice_left`, `splice_right` in the per-intron TSV) — reads with a CIGAR `N` op anchored at that boundary;
+- $R_L$, $R_R$ are the retain-read counts (`retain_left`, `retain_right`) — reads with matched alignment continuously through that boundary;
+- in the per-side form, $\text{side} \in \{L, R\}$.
 
 **Depth signal — how much intronic sequence is actually unspliced?**
 
@@ -45,8 +51,11 @@ $$
 \mathrm{IR}_{\text{depth}} = \frac{D}{D + \max(S_L, S_R)}
 $$
 
-where $D$ is the mean matched-bp depth inside the intron, i.e.
-`intron_coverage_bp / intron_length`.
+where:
+
+- $D = $ `intron_coverage_bp / intron_length` is the mean matched-bp depth inside the intron from non-spliced reads;
+- $S_L$, $S_R$ are the same per-side splice counts as above;
+- $\max(S_L, S_R)$ is IRFinder-S's choice of denominator — using the larger of the two side counts avoids penalising introns whose splice support is asymmetric (e.g. truncated reads anchored on only one side).
 
 Both ratios are `.` (undefined) when there is no splice evidence to compare
 against — the IR ratio is a *relative* measure and a locus with no observed
