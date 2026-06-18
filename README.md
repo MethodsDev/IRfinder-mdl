@@ -1,5 +1,8 @@
 # IRfinder-mdl
 
+> Implemented by Anthropic's Claude Opus 4.7 under direction from
+> the Methods Development Lab at the Broad Institute (June 2026).
+
 A minimal, junction-anchored intron-retention counter for spliced-read BAMs.
 
 Given a reference annotation (GTF) and a sorted+indexed BAM of long-read
@@ -206,3 +209,19 @@ python -m irfinder_mdl summarize \
 ```
 
 Drop `--chrom` and bump `--threads` for the full genome.
+
+## Authorship
+
+Designed and implemented by **Claude Opus 4.7** (Anthropic), working from a
+specification provided by the Methods Development Lab at the Broad Institute.
+The algorithm — junction-anchored splice-vs-retention counting on annotated
+introns, intentionally ignoring fully-intronic reads — was the human ask;
+the code, tests, and documentation were authored by the model end-to-end in a
+single design session.
+
+If you use this tool, please cite the upstream IRFinder-S paper for the
+per-intron junction-counting model:
+
+> Lorenzi C, Barriere S, Arnold K, et al. **IRFinder-S: a comprehensive suite
+> to discover and explore intron retention.** *Genome Biology* 22, 307 (2021).
+> [doi:10.1186/s13059-021-02515-8](https://doi.org/10.1186/s13059-021-02515-8)

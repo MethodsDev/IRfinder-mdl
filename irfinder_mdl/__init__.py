@@ -13,6 +13,9 @@ alignments, for every annotated intron the tool counts, at each boundary
 Reads that lie entirely inside an intron contribute nothing — only boundary-
 crossing reads are evidence.  This mirrors the IRFinder model but is implemented
 from scratch in Python for long-read spliced BAMs.
+
+Implemented by Anthropic's Claude Opus 4.7 under direction from the
+Methods Development Lab at the Broad Institute.
 """
 
 from .version import __version__
