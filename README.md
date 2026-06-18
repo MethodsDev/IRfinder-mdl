@@ -19,9 +19,16 @@ spliced alignments, for every annotated intron the tool counts:
    anchor window.
 
 The junction-only IR ratio at each boundary is
-$$\mathrm{IR}_{\text{side}} = \frac{R_{\text{side}}}{R_{\text{side}} + S_{\text{side}}}$$
+
+$$
+\mathrm{IR}_{\text{side}} = \frac{R_{\text{side}}}{R_{\text{side}} + S_{\text{side}}}
+$$
+
 with the per-intron summary
-$$\mathrm{IR}_{\text{junction}} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}.$$
+
+$$
+\mathrm{IR}_{\text{junction}} = \frac{R_L + R_R}{R_L + R_R + S_L + S_R}.
+$$
 
 **Depth signal — how much intronic sequence is actually unspliced?**
 
@@ -33,7 +40,13 @@ For each annotated intron the tool also tallies:
   reads, interior reads, or reads spliced through unrelated introns elsewhere).
 
 These give the IRFinder-S-style ratio
-$$\mathrm{IR}_{\text{depth}} = \frac{D}{D + \max(S_L, S_R)}, \quad D = \frac{\text{intron\_coverage\_bp}}{\text{intron\_length}}.$$
+
+$$
+\mathrm{IR}_{\text{depth}} = \frac{D}{D + \max(S_L, S_R)}
+$$
+
+where $D$ is the mean matched-bp depth inside the intron, i.e.
+`intron_coverage_bp / intron_length`.
 
 Both ratios are `.` (undefined) when there is no splice evidence to compare
 against — the IR ratio is a *relative* measure and a locus with no observed
