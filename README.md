@@ -83,7 +83,7 @@ git clone git@github.com:MethodsDev/IRfinder-mdl.git
 cd IRfinder-mdl
 pip install -e .[test]
 
-python -m pytest                          # 47 tests, ~0.1 s
+python -m pytest                          # 71 tests, ~0.1 s
 irfinder-mdl --help                       # or: python -m irfinder_mdl --help
 ```
 
@@ -128,7 +128,8 @@ Knobs (all default to IRFinder-S long-read settings):
 | `--min-mapq`      | `1`     | discard reads with MAPQ below this (excludes multi-mappers at `0`) |
 | `--exclude-flags` | `0x900` | SAM flag mask of reads to drop (secondary \| supplementary) |
 | `--threads`       | all CPUs| parallel chromosome workers |
-| `--chrom`         | —       | restrict to one chromosome (repeatable). Useful for smoke tests. |
+| `--chrom`         | —       | restrict to one chromosome (repeatable). Takes precedence over the primary-chromosome default. |
+| `--all-chroms`    | off     | also examine the mitochondrion and unplaced/alt contigs. By default only nuclear primary chromosomes (`chr1`–N, `X`, `Y`, with or without the `chr` prefix) are examined; `chrM`/`MT`, `GL*`, `KI*`, `chrUn_*`, `*_random`, `*_alt` are skipped. |
 
 ### Output columns
 
@@ -190,6 +191,14 @@ to 0-based half-open (BAM/BED convention). All output coordinates are
   evidence is collapsed by genomic interval.
 - **MAPQ.** Default `--min-mapq 1` drops MAPQ-0 multi-mappers, which is
   important for paralogous gene families and repetitive UTRs.
+- **Primary chromosomes by default.** `quantify` examines only nuclear primary
+  chromosomes (`chr1`–N, `X`, `Y`, with or without the `chr` prefix). The
+  mitochondrion (`chrM`/`MT` — no spliced introns) and all unplaced/alt contigs
+  (`GL*`, `KI*`, `chrUn_*`, `*_random`, `*_alt`) are skipped because their tiny
+  intron counts and repeat-driven multi-mapping produce meaningless per-contig
+  IR rates (e.g. a contig with coverage but ~zero splice reads reports ~100%).
+  Pass `--all-chroms` to include everything, or `--chrom NAME` to target a
+  specific sequence (which overrides the default).
 - **Exon overlap.** Without `--skip-exon-overlap`, introns whose interval is
   exonic in some other transcript are included with a flag set. Filter
   downstream as needed; for any "rate of intron retention" headline number,

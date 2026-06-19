@@ -15,8 +15,8 @@
   "IRfinderMDL.anchor":              8,
   "IRfinderMDL.jitter":              3,
   "IRfinderMDL.min_mapq":            1,
-  "IRfinderMDL.exclude_flags":       2304,
   "IRfinderMDL.skip_exon_overlap":   false,
+  "IRfinderMDL.primary_chroms_only": true,
 
   "_resource_overrides": "Increase quantify_cpu / quantify_memory_gb for large BAMs.",
   "IRfinderMDL.build_introns_cpu":        2,

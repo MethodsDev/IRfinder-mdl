@@ -35,6 +35,7 @@ workflow IRfinderMDL {
         min_mapq: "Discard reads with MAPQ below this."
         exclude_flags: "SAM flag mask of reads to drop (2304 = 0x900 = secondary | supplementary)."
         skip_exon_overlap: "Drop introns whose interval overlaps any annotated exon before quantifying."
+        primary_chroms_only: "Examine only nuclear primary chromosomes (chr1-N, X, Y; with or without the chr prefix), skipping the mitochondrion and unplaced/alt contigs. Default true."
     }
 
     input {
@@ -56,6 +57,7 @@ workflow IRfinderMDL {
         Int min_mapq = 1
         Int exclude_flags = 2304   # 0x900 = secondary | supplementary
         Boolean skip_exon_overlap = false
+        Boolean primary_chroms_only = true
 
         # Resource overrides
         Int build_introns_cpu = 2
@@ -97,6 +99,7 @@ workflow IRfinderMDL {
             min_mapq = min_mapq,
             exclude_flags = exclude_flags,
             skip_exon_overlap = skip_exon_overlap,
+            primary_chroms_only = primary_chroms_only,
             cpu = quantify_cpu,
             memory_gb = quantify_memory_gb,
             docker = docker,
@@ -168,6 +171,7 @@ task Quantify {
         Int min_mapq
         Int exclude_flags
         Boolean skip_exon_overlap
+        Boolean primary_chroms_only
         Int cpu
         Int memory_gb
         String docker
@@ -195,6 +199,7 @@ task Quantify {
             --min-mapq ~{min_mapq} \
             --exclude-flags ~{exclude_flags} \
             ~{true="--skip-exon-overlap" false="" skip_exon_overlap} \
+            ~{true="" false="--all-chroms" primary_chroms_only} \
             --threads ~{cpu}
     >>>
 

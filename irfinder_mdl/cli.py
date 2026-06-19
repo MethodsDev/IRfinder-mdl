@@ -58,7 +58,14 @@ def _add_quantify(sub):
                    help="Parallel chromosome workers (default: all CPUs)")
     p.add_argument("--chrom", action="append", default=None,
                    help="Restrict to this chromosome (may be repeated; "
-                        "useful for smoke tests)")
+                        "useful for smoke tests). Takes precedence over the "
+                        "primary-chromosome default.")
+    p.add_argument("--all-chroms", action="store_true",
+                   help="Quantify every chromosome including the mitochondrion "
+                        "and unplaced/alt contigs (chrM/MT, GL*, KI*, chrUn_*, "
+                        "*_random, *_alt). By default only nuclear primary "
+                        "chromosomes (chr1-N, X, Y, with or without the chr "
+                        "prefix) are examined.")
     p.add_argument("--skip-exon-overlap", action="store_true",
                    help="Skip introns flagged as overlapping an annotated exon. "
                         "These are alternative-isoform-prone and usually excluded "
@@ -123,6 +130,18 @@ def main(argv: list[str] | None = None) -> int:
             introns = [i for i in introns if not i.exon_overlap]
             print(f"[quantify] dropped {before - len(introns):,} exon-overlap "
                   f"introns; {len(introns):,} remain", file=sys.stderr)
+        # Primary-chromosome default: drop unplaced/alt contigs unless the user
+        # asked for everything (--all-chroms) or named explicit chromosomes
+        # (--chrom, which already restricts and takes precedence).
+        if not args.all_chroms and not args.chrom:
+            from .quantify import is_primary_chrom
+            before = len(introns)
+            introns = [i for i in introns if is_primary_chrom(i.chrom)]
+            dropped = before - len(introns)
+            if dropped:
+                print(f"[quantify] primary-chromosome filter: dropped {dropped:,} "
+                      f"introns on unplaced/alt contigs ({len(introns):,} remain); "
+                      f"pass --all-chroms to include them", file=sys.stderr)
         counts = quantify_introns(
             args.bam, introns, params,
             threads=args.threads,

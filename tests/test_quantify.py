@@ -9,6 +9,7 @@ from irfinder_mdl.quantify import (
     CIGAR_M, CIGAR_I, CIGAR_D, CIGAR_N, CIGAR_S, CIGAR_H,
     _safe_ratio,
     classify_read_vs_intron,
+    is_primary_chrom,
     matched_bp_in,
     parse_cigar,
 )
@@ -382,6 +383,31 @@ class TestSafeRatio:
     def test_works_with_floats(self):
         # Mean depth (float) competes with splice count (int)
         assert _safe_ratio(2.5, 7.5) == "0.250000"
+
+
+# ---------------------------------------------------------------------------
+# Primary-chromosome filter
+# ---------------------------------------------------------------------------
+class TestIsPrimaryChrom:
+    @pytest.mark.parametrize("chrom", [
+        "chr1", "chr9", "chr22", "chrX", "chrY",          # UCSC/GENCODE
+        "1", "9", "22", "X", "Y",                          # Ensembl bare
+    ])
+    def test_primary_kept(self, chrom):
+        assert is_primary_chrom(chrom) is True
+
+    @pytest.mark.parametrize("chrom", [
+        # Mitochondrion is intentionally excluded (no spliced introns).
+        "chrM", "chrMT", "M", "MT",
+        # Unplaced / alt contigs (GENCODE/Ensembl bare).
+        "GL000008.2", "KI270442.1", "GL000194.1",
+        # UCSC decoys: chr-prefixed but not primary.
+        "chrUn_GL000220v1", "chr1_KI270706v1_random", "chr19_KI270890v1_alt",
+        # Junk / empty.
+        "chr", "", "chrZ", "scaffold_1",
+    ])
+    def test_nonprimary_dropped(self, chrom):
+        assert is_primary_chrom(chrom) is False
 
 # ---------------------------------------------------------------------------
 # GTF parsing roundtrip

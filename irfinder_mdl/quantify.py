@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -44,6 +45,28 @@ from .gtf import Intron
 # ---------------------------------------------------------------------------
 CIGAR_M, CIGAR_I, CIGAR_D, CIGAR_N, CIGAR_S, CIGAR_H, CIGAR_P, CIGAR_EQ, CIGAR_X = range(9)
 _MATCHED = frozenset({CIGAR_M, CIGAR_EQ, CIGAR_X})
+
+
+# ---------------------------------------------------------------------------
+# Primary-assembly chromosome filter
+# ---------------------------------------------------------------------------
+# Matches the nuclear primary chromosomes in both UCSC/GENCODE (`chr1`, `chrX`)
+# and Ensembl (`1`, `X`) naming, and *excludes*:
+#   - the mitochondrion (`chrM`, `chrMT`, `M`, `MT`) -- it has no spliced
+#     introns, so it contributes nothing but noise to IR;
+#   - every unplaced/alt contig: GENCODE/Ensembl bare contigs (`GL000008.2`,
+#     `KI270442.1`) and UCSC decoys (`chrUn_*`, `chr1_KI270706v1_random`,
+#     `chr19_KI270890v1_alt`).
+# The optional `chr` prefix plus the `$`-anchored alternation is what rejects
+# the decoys (their `_`/`Un` suffixes never match).
+_PRIMARY_CHROM_RE = re.compile(r"^(?:chr)?(?:[0-9]+|X|Y)$")
+
+
+def is_primary_chrom(chrom: str) -> bool:
+    """True for nuclear primary-assembly chromosomes (chr1-N, X, Y, with or
+    without the `chr` prefix); False for the mitochondrion and every
+    unplaced/alt contig."""
+    return _PRIMARY_CHROM_RE.match(chrom) is not None
 
 
 # ---------------------------------------------------------------------------
