@@ -83,7 +83,7 @@ git clone git@github.com:MethodsDev/IRfinder-mdl.git
 cd IRfinder-mdl
 pip install -e .[test]
 
-python -m pytest                          # 71 tests, ~0.1 s
+python -m pytest                          # 76 tests, ~0.1 s
 irfinder-mdl --help                       # or: python -m irfinder_mdl --help
 ```
 
@@ -115,9 +115,14 @@ python -m irfinder_mdl quantify \
     --bam path/to/alignments.sorted.bam \
     --introns introns.tsv.gz \
     --output ir.tsv.gz \
+    --sample-id SID004 \
     --skip-exon-overlap \
     --threads 16
 ```
+
+With `--sample-id SID004`, the file above is written as `SID004.ir.tsv.gz`
+(the sample id is prefixed onto the output basename; any directory component
+of `--output` is preserved).
 
 Knobs (all default to IRFinder-S long-read settings):
 
@@ -128,6 +133,7 @@ Knobs (all default to IRFinder-S long-read settings):
 | `--min-mapq`      | `1`     | discard reads with MAPQ below this (excludes multi-mappers at `0`) |
 | `--exclude-flags` | `0x900` | SAM flag mask of reads to drop (secondary \| supplementary) |
 | `--threads`       | all CPUs| parallel chromosome workers |
+| `--sample-id` / `-s` | —    | prefix the output basename with `<sample-id>.` (e.g. `ir.tsv.gz` → `SID004.ir.tsv.gz`). Idempotent and a no-op when unset. |
 | `--chrom`         | —       | restrict to one chromosome (repeatable). Takes precedence over the primary-chromosome default. |
 | `--all-chroms`    | off     | also examine the mitochondrion and unplaced/alt contigs. By default only nuclear primary chromosomes (`chr1`–N, `X`, `Y`, with or without the `chr` prefix) are examined; `chrM`/`MT`, `GL*`, `KI*`, `chrUn_*`, `*_random`, `*_alt` are skipped. |
 

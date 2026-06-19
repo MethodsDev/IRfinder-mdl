@@ -1,8 +1,9 @@
 """IRfinder-mdl command line.
 
-Two subcommands:
+Subcommands:
   build-introns   GTF -> unique-intron TSV with exon-overlap flag
   quantify        introns TSV + BAM -> per-intron IR counts and ratios
+  summarize       per-intron TSV -> global / per-chromosome IR report
 """
 
 from __future__ import annotations
@@ -14,6 +15,25 @@ import sys
 from .gtf import build_introns_from_gtf, read_introns_tsv, write_introns_tsv
 from .quantify import QuantParams, quantify_introns, write_quant_tsv
 from .version import __version__
+
+
+def _apply_sample_prefix(output: str, sample_id: str | None) -> str:
+    """Prefix the basename of `output` with ``<sample_id>.`` when `sample_id`
+    is set.
+
+    No-op when `sample_id` is falsy.  Idempotent: if the basename already
+    starts with that prefix it is returned unchanged, so passing both an
+    already-prefixed ``--output`` and ``--sample-id`` does not double up.
+    Only the basename is touched; any directory component of `output` is
+    preserved.
+    """
+    if not sample_id:
+        return output
+    d, b = os.path.split(output)
+    prefix = f"{sample_id}."
+    if b.startswith(prefix):
+        return output
+    return os.path.join(d, prefix + b)
 
 
 def _add_build_introns(sub):
@@ -29,6 +49,8 @@ def _add_build_introns(sub):
     p.add_argument("--gtf", required=True, help="Reference GTF (may be .gz)")
     p.add_argument("--output", "-o", required=True,
                    help="Output introns TSV (.tsv or .tsv.gz)")
+    p.add_argument("--sample-id", "-s", default=None,
+                   help="If set, prefix the output basename with '<sample-id>.'")
     return p
 
 
@@ -45,6 +67,8 @@ def _add_quantify(sub):
                    help="Introns TSV from `build-introns`")
     p.add_argument("--output", "-o", required=True,
                    help="Output per-intron quant TSV (.tsv or .tsv.gz)")
+    p.add_argument("--sample-id", "-s", default=None,
+                   help="If set, prefix the output basename with '<sample-id>.'")
     p.add_argument("--anchor", type=int, default=8,
                    help="Min matched bp on each anchor side (default: 8)")
     p.add_argument("--jitter", type=int, default=3,
@@ -108,8 +132,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "build-introns":
         introns = build_introns_from_gtf(args.gtf)
-        write_introns_tsv(introns, args.output)
-        print(f"[build-introns] wrote {len(introns):,} introns -> {args.output}",
+        output = _apply_sample_prefix(args.output, args.sample_id)
+        write_introns_tsv(introns, output)
+        print(f"[build-introns] wrote {len(introns):,} introns -> {output}",
               file=sys.stderr)
         return 0
 
@@ -147,10 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             threads=args.threads,
             chroms=args.chrom,
         )
-        write_quant_tsv(introns, counts, args.output)
+        output = _apply_sample_prefix(args.output, args.sample_id)
+        write_quant_tsv(introns, counts, output)
         n_evidence = sum(1 for c in counts if c.crossing_reads > 0)
         print(f"[quantify] {n_evidence:,}/{len(introns):,} introns had crossing "
-              f"reads; wrote {args.output}", file=sys.stderr)
+              f"reads; wrote {output}", file=sys.stderr)
         return 0
 
     if args.cmd == "summarize":

@@ -143,7 +143,8 @@ task BuildIntrons {
         set -euo pipefail
         irfinder-mdl build-introns \
             --gtf ~{gtf} \
-            --output ~{sample_id}.introns.tsv.gz
+            --sample-id ~{sample_id} \
+            --output introns.tsv.gz
     >>>
 
     output {
@@ -193,7 +194,8 @@ task Quantify {
         irfinder-mdl quantify \
             --bam input.bam \
             --introns ~{introns} \
-            --output ~{sample_id}.ir.tsv.gz \
+            --sample-id ~{sample_id} \
+            --output ir.tsv.gz \
             --anchor ~{anchor} \
             --jitter ~{jitter} \
             --min-mapq ~{min_mapq} \

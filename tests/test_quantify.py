@@ -409,6 +409,32 @@ class TestIsPrimaryChrom:
     def test_nonprimary_dropped(self, chrom):
         assert is_primary_chrom(chrom) is False
 
+
+# ---------------------------------------------------------------------------
+# Sample-id output prefixing
+# ---------------------------------------------------------------------------
+class TestApplySamplePrefix:
+    def test_none_sample_id_is_noop(self):
+        from irfinder_mdl.cli import _apply_sample_prefix
+        assert _apply_sample_prefix("ir.tsv.gz", None) == "ir.tsv.gz"
+
+    def test_empty_sample_id_is_noop(self):
+        from irfinder_mdl.cli import _apply_sample_prefix
+        assert _apply_sample_prefix("ir.tsv.gz", "") == "ir.tsv.gz"
+
+    def test_prefixes_basename(self):
+        from irfinder_mdl.cli import _apply_sample_prefix
+        assert _apply_sample_prefix("ir.tsv.gz", "SID004") == "SID004.ir.tsv.gz"
+
+    def test_preserves_directory(self):
+        import os
+        from irfinder_mdl.cli import _apply_sample_prefix
+        assert _apply_sample_prefix("out/dir/ir.tsv.gz", "SID004") == os.path.join("out/dir", "SID004.ir.tsv.gz")
+
+    def test_idempotent_when_already_prefixed(self):
+        from irfinder_mdl.cli import _apply_sample_prefix
+        assert _apply_sample_prefix("SID004.ir.tsv.gz", "SID004") == "SID004.ir.tsv.gz"
+
 # ---------------------------------------------------------------------------
 # GTF parsing roundtrip
 # ---------------------------------------------------------------------------
