@@ -74,6 +74,10 @@ and the depth model is an adapted form of its `IntronDepth / MaxSplice`
 ratio. No CNN filter is applied; reference-mappability filters are left to
 the caller.
 
+For the mechanics of *why* the depth ratio is the more conservative estimate of
+bona-fide retention — and how to read the two ratios together — see
+[docs/interpreting-ir-metrics.md](docs/interpreting-ir-metrics.md).
+
 ## Install
 
 Python ≥ 3.10. Runtime deps: `pysam`, `intervaltree`.
